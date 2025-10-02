@@ -26,6 +26,10 @@
             width: 800px;
             height: 600px;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
         }
 
         .book {
@@ -88,13 +92,13 @@
         }
 
         .controls {
-            position: fixed;
-            bottom: 30px;
+            position: absolute;
             left: 50%;
+            bottom: 10px;
             transform: translateX(-50%);
             display: flex;
             gap: 20px;
-            z-index: 100;
+            margin-top: 10px;
         }
 
         .btn {
@@ -180,6 +184,10 @@
                 width: 90vw;
                 height: 60vh;
             }
+            .controls {
+                bottom: 0;
+                gap: 10px;
+            }
         }
     </style>
 </head>
@@ -195,6 +203,10 @@
 <div class="book-container" id="bookContainer" style="display: none;">
     <div class="page single-page" id="singlePage">
         <div class="page-content" id="singleContent"></div>
+    </div>
+    <div class="controls" id="controls" style="display: none;">
+        <button class="btn" id="prevBtn" onclick="previousPage()">上一張</button>
+        <button class="btn" id="nextBtn" onclick="nextPage()">下一張</button>
     </div>
 </div>
 
