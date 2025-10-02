@@ -50,14 +50,18 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         }
 
-        .page-left {
+        .single-page {
             left: 0;
-            z-index: 10;
-        }
-
-        .page-right {
-            right: 0;
-            z-index: 10;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            background: white;
+            border: 2px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         .page-content {
@@ -189,23 +193,18 @@
 </div>
 
 <div class="book-container" id="bookContainer" style="display: none;">
-    <div class="book" id="book">
-        <div class="page page-left" id="leftPage">
-            <div class="page-content" id="leftContent"></div>
-        </div>
-        <div class="page page-right" id="rightPage">
-            <div class="page-content" id="rightContent"></div>
-        </div>
+    <div class="page single-page" id="singlePage">
+        <div class="page-content" id="singleContent"></div>
     </div>
 </div>
 
 <div class="page-indicator" id="pageIndicator" style="display: none;">
-    第 <span id="currentPage">1</span> 頁 / 共 <span id="totalPages">0</span> 頁
+    第 <span id="currentPage">1</span> 張 / 共 <span id="totalPages">0</span> 張
 </div>
 
 <div class="controls" id="controls" style="display: none;">
-    <button class="btn" id="prevBtn" onclick="previousPage()">上一頁</button>
-    <button class="btn" id="nextBtn" onclick="nextPage()">下一頁</button>
+    <button class="btn" id="prevBtn" onclick="previousPage()">上一張</button>
+    <button class="btn" id="nextBtn" onclick="nextPage()">下一張</button>
 </div>
 
 <script>
@@ -398,42 +397,28 @@
     // 從GitHub載入圖片 - 優化版本
     async function loadImagesFromGitHub() {
         showLoading();
-
         const imageFiles = await fetchImageList();
-
         if (imageFiles.length === 0) {
             updateLoadingInfo('沒有找到圖片');
             return;
         }
-
         updateProgress(40);
         updateLoadingInfo(`開始載入 ${imageFiles.length} 張圖片...`);
-
-        // 清空目前資料
         images = new Array(imageFiles.length);
         currentPageIndex = 0;
-
-        // 先載入前4張圖片（目前頁和下一頁需要的圖片）
         const initialBatchSize = Math.min(4, imageFiles.length);
         const initialBatch = await preloadImages(imageFiles, 0, initialBatchSize);
-
-        // 處理載入結果
         initialBatch.forEach(result => {
             if (result.url) {
                 images[result.index] = result.url;
             }
         });
-
         updateProgress(60);
-
-        // 顯示已載入的圖片
         if (images.filter(img => img !== undefined).length > 0) {
             hideLoading();
-            displayCurrentPages();
+            displayCurrentPage();
             updatePageIndicator();
             updateButtons();
-
-            // 在背景中繼續載入剩餘圖片
             loadRemainingImages(imageFiles, initialBatchSize);
         } else {
             updateLoadingInfo('無法載入任何圖片，請檢查網路連線');
@@ -465,7 +450,7 @@
 
             // 更新顯示（如果是目前正在查看的圖片）
             if (Math.floor(currentIndex / 2) === Math.floor(currentPageIndex / 2)) {
-                displayCurrentPages();
+                displayCurrentPage();
             }
 
             // 短暫暫停，避免過度消耗資源
@@ -477,76 +462,30 @@
     }
 
     // 顯示目前頁面 - 優化版
-    function displayCurrentPages() {
-        const leftContent = document.getElementById('leftContent');
-        const rightContent = document.getElementById('rightContent');
-
-        // 清空內容
-        leftContent.innerHTML = '';
-        rightContent.innerHTML = '';
-
-        // 顯示左頁
+    function displayCurrentPage() {
+        const singleContent = document.getElementById('singleContent');
+        singleContent.innerHTML = '';
         if (currentPageIndex < images.length && images[currentPageIndex]) {
-            const leftImg = document.createElement('img');
-            leftImg.src = images[currentPageIndex];
-            leftImg.alt = `圖片 ${currentPageIndex + 1}`;
-            leftImg.loading = "eager"; // 優先載入可見圖片
-            leftContent.appendChild(leftImg);
-        }
-
-        // 顯示右頁
-        if (currentPageIndex + 1 < images.length && images[currentPageIndex + 1]) {
-            const rightImg = document.createElement('img');
-            rightImg.src = images[currentPageIndex + 1];
-            rightImg.alt = `圖片 ${currentPageIndex + 2}`;
-            rightImg.loading = "eager"; // 優先載入可見圖片
-            rightContent.appendChild(rightImg);
-        }
-
-        // 預載入下幾頁的圖片
-        preloadNextPages();
-    }
-
-    // 預載入下一頁和下下頁
-    function preloadNextPages() {
-        // 預載入下一頁
-        if (currentPageIndex + 2 < images.length && !images[currentPageIndex + 2]) {
-            fetchNextImages(currentPageIndex + 2, 2);
-        }
-        // 預載入下下頁
-        if (currentPageIndex + 4 < images.length && !images[currentPageIndex + 4]) {
-            fetchNextImages(currentPageIndex + 4, 2);
-        }
-    }
-
-    // 載入指定索引的圖片
-    function fetchNextImages(startIndex, count) {
-        // 如果已經有圖片資訊但沒有載入，觸發載入
-        for (let i = 0; i < count; i++) {
-            const index = startIndex + i;
-            if (index < images.length && !images[index]) {
-                // 此處可以針對性載入特定索引的圖片
-                console.log(`預載入索引 ${index} 的圖片`);
-            }
+            const img = document.createElement('img');
+            img.src = images[currentPageIndex];
+            img.alt = `圖片 ${currentPageIndex + 1}`;
+            img.loading = "eager";
+            singleContent.appendChild(img);
         }
     }
 
     // 下一頁
     function nextPage() {
-        if (isFlipping || currentPageIndex + 2 >= images.length) return;
-
+        if (isFlipping || currentPageIndex + 1 >= images.length) return;
         isFlipping = true;
-        const book = document.getElementById('book');
-
-        // 翻頁動畫
-        book.style.transform = 'rotateY(-15deg)';
-
+        const singlePage = document.getElementById('singlePage');
+        singlePage.style.transform = 'rotateY(-15deg)';
         setTimeout(() => {
-            currentPageIndex += 2;
-            displayCurrentPages();
+            currentPageIndex += 1;
+            displayCurrentPage();
             updatePageIndicator();
             updateButtons();
-            book.style.transform = 'rotateY(0deg)';
+            singlePage.style.transform = 'rotateY(0deg)';
             isFlipping = false;
         }, 400);
     }
@@ -554,33 +493,29 @@
     // 上一頁
     function previousPage() {
         if (isFlipping || currentPageIndex <= 0) return;
-
         isFlipping = true;
-        const book = document.getElementById('book');
-
-        // 翻頁動畫
-        book.style.transform = 'rotateY(15deg)';
-
+        const singlePage = document.getElementById('singlePage');
+        singlePage.style.transform = 'rotateY(15deg)';
         setTimeout(() => {
-            currentPageIndex -= 2;
-            displayCurrentPages();
+            currentPageIndex -= 1;
+            displayCurrentPage();
             updatePageIndicator();
             updateButtons();
-            book.style.transform = 'rotateY(0deg)';
+            singlePage.style.transform = 'rotateY(0deg)';
             isFlipping = false;
         }, 400);
     }
 
     // 更新頁面指示器
     function updatePageIndicator() {
-        document.getElementById('currentPage').textContent = Math.floor(currentPageIndex / 2) + 1;
-        document.getElementById('totalPages').textContent = Math.ceil(images.length / 2);
+        document.getElementById('currentPage').textContent = currentPageIndex + 1;
+        document.getElementById('totalPages').textContent = images.length;
     }
 
     // 更新按鈕狀態
     function updateButtons() {
         document.getElementById('prevBtn').disabled = currentPageIndex <= 0;
-        document.getElementById('nextBtn').disabled = currentPageIndex + 2 >= images.length;
+        document.getElementById('nextBtn').disabled = currentPageIndex + 1 >= images.length;
     }
 
     // 顯示載入狀態
@@ -592,7 +527,6 @@
         updateProgress(0);
     }
 
-    // 隱藏載入狀態
     function hideLoading() {
         document.getElementById('loading').style.display = 'none';
         document.getElementById('bookContainer').style.display = 'block';
@@ -608,14 +542,10 @@
             previousPage();
         }
     });
-
-    // 頁面點擊事件
-    document.getElementById('rightPage').addEventListener('click', nextPage);
-    document.getElementById('leftPage').addEventListener('click', previousPage);
+    document.getElementById('singlePage').addEventListener('click', nextPage);
 
     // 頁面載入完成後初始化
     window.addEventListener('load', function() {
-        // 從GitHub載入圖片
         loadImagesFromGitHub();
     });
 </script>
