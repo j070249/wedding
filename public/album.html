@@ -170,8 +170,6 @@
 <div class="controls" id="controls" style="display: none;">
     <button class="btn" id="prevBtn" onclick="previousPage()">上一页</button>
     <button class="btn" id="nextBtn" onclick="nextPage()">下一页</button>
-    <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;" onchange="loadImages(event)">
-    <button class="btn" onclick="document.getElementById('folderInput').click()">选择文件夹</button>
 </div>
 
 <script>
@@ -179,57 +177,103 @@
     let currentPageIndex = 0;
     let isFlipping = false;
 
-    // 模拟图片数据（实际使用时会从文件夹读取）
-    const sampleImages = [
-        'https://picsum.photos/400/600?random=1',
-        'https://picsum.photos/400/600?random=2',
-        'https://picsum.photos/400/600?random=3',
-        'https://picsum.photos/400/600?random=4',
-        'https://picsum.photos/400/600?random=5',
-        'https://picsum.photos/400/600?random=6'
-    ];
+    // GitHub 仓库信息
+    const githubRepoUrl = 'https://raw.githubusercontent.com/j070249/wedding/main/myAlbum/';
+    const githubApiUrl = 'https://api.github.com/repos/j070249/wedding/contents/myAlbum';
 
-    // 初始化加载示例图片
-    function initializeWithSampleImages() {
-        images = sampleImages;
-        hideLoading();
-        displayCurrentPages();
-        updatePageIndicator();
-        updateButtons();
+    // 从 GitHub API 获取文件列表
+    async function fetchImageList() {
+        showLoading();
+        document.getElementById('loading').textContent = '获取文件列表中...';
+
+        try {
+            const response = await fetch(githubApiUrl);
+
+            if (!response.ok) {
+                throw new Error(`获取文件列表失败: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            // 过滤出图片文件
+            const imageFiles = data.filter(file => {
+                const extension = file.name.split('.').pop().toLowerCase();
+                return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(extension);
+            }).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+
+            if (imageFiles.length === 0) {
+                document.getElementById('loading').textContent = 'myAlbum 目录中没有找到图片文件';
+                return [];
+            }
+
+            console.log(`找到 ${imageFiles.length} 张图片`);
+            return imageFiles.map(file => file.name);
+        } catch (error) {
+            console.error('获取文件列表错误:', error);
+            document.getElementById('loading').textContent = `获取图片列表失败: ${error.message}`;
+            return [];
+        }
     }
 
-    // 从文件夹加载图片
-    function loadImages(event) {
-        const files = Array.from(event.target.files);
-        const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    // 从GitHub加载图片
+    async function loadImagesFromGitHub() {
+        const imageFiles = await fetchImageList();
 
         if (imageFiles.length === 0) {
-            alert('所选文件夹中没有找到图片文件');
             return;
         }
 
-        showLoading();
+        document.getElementById('loading').textContent = '开始加载图片...';
         images = [];
         currentPageIndex = 0;
-
         let loadedCount = 0;
 
-        imageFiles.forEach((file, index) => {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                images[index] = e.target.result;
+        imageFiles.forEach((fileName, index) => {
+            // 编码文件名以处理特殊字符
+            const encodedFileName = encodeURIComponent(fileName);
+            const imageUrl = githubRepoUrl + encodedFileName;
+
+            // 创建图片对象预加载
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+
+            img.onload = function() {
+                images[index] = imageUrl;
                 loadedCount++;
 
+                // 更新加载进度
+                document.getElementById('loading').textContent =
+                    `正在加载图片... ${loadedCount}/${imageFiles.length}`;
+
                 if (loadedCount === imageFiles.length) {
-                    // 过滤掉未定义的元素并排序
-                    images = images.filter(img => img !== undefined);
                     hideLoading();
                     displayCurrentPages();
                     updatePageIndicator();
                     updateButtons();
                 }
             };
-            reader.readAsDataURL(file);
+
+            img.onerror = function() {
+                console.error(`无法加载图片: ${fileName}`);
+                loadedCount++;
+
+                if (loadedCount === imageFiles.length) {
+                    images = images.filter(img => img !== undefined);
+                    hideLoading();
+
+                    if (images.length === 0) {
+                        document.getElementById('loading').textContent =
+                            '无法从GitHub加载图片。请检查网络连接或仓库权限。';
+                        document.getElementById('loading').style.display = 'block';
+                    } else {
+                        displayCurrentPages();
+                        updatePageIndicator();
+                        updateButtons();
+                    }
+                }
+            };
+
+            img.src = imageUrl;
         });
     }
 
@@ -342,10 +386,8 @@
 
     // 页面加载完成后初始化
     window.addEventListener('load', function() {
-        // 延迟一秒后加载示例图片
-        setTimeout(() => {
-            initializeWithSampleImages();
-        }, 1000);
+        // 从GitHub加载图片
+        loadImagesFromGitHub();
     });
 </script>
 </body>
