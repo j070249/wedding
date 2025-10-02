@@ -131,6 +131,25 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
 
+        /* 进度条样式 */
+        .progress-container {
+            width: 300px;
+            height: 20px;
+            background-color: rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            margin: 20px auto;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: white;
+            width: 0%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        /* 加载信息样式优化 */
         .loading {
             position: fixed;
             top: 50%;
@@ -139,6 +158,17 @@
             color: white;
             font-size: 24px;
             font-weight: bold;
+            text-align: center;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 20px 30px;
+            border-radius: 10px;
+            min-width: 320px;
+        }
+
+        /* 低分辨率图片预览 */
+        .low-res {
+            filter: blur(3px);
+            transition: filter 0.5s ease;
         }
 
         @media (max-width: 768px) {
@@ -150,7 +180,13 @@
     </style>
 </head>
 <body>
-<div class="loading" id="loading">正在加载图片...</div>
+<div class="loading" id="loading">
+    正在加载图片...
+    <div class="progress-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div id="loadingInfo">正在连接到图库...</div>
+</div>
 
 <div class="book-container" id="bookContainer" style="display: none;">
     <div class="book" id="book">
@@ -176,15 +212,81 @@
     let images = [];
     let currentPageIndex = 0;
     let isFlipping = false;
+    let cachedImages = {}; // 图片缓存
+
+    // 本地存储密钥
+    const CACHE_KEY = 'wedding_album_cache';
+    const CACHE_VERSION = 1;
+    const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24小时缓存过期
 
     // GitHub 仓库信息
     const githubRepoUrl = 'https://raw.githubusercontent.com/j070249/wedding/main/myAlbum/';
     const githubApiUrl = 'https://api.github.com/repos/j070249/wedding/contents/myAlbum';
 
+    // CDN加速URL (备用)
+    const cdnBaseUrl = 'https://cdn.jsdelivr.net/gh/j070249/wedding@main/myAlbum/';
+
+    // 更新进度条
+    function updateProgress(percent) {
+        document.getElementById('progressBar').style.width = `${percent}%`;
+    }
+
+    // 更新加载信息
+    function updateLoadingInfo(message) {
+        document.getElementById('loadingInfo').textContent = message;
+    }
+
+    // 检查并加载缓存
+    function loadCachedData() {
+        try {
+            const cachedData = localStorage.getItem(CACHE_KEY);
+            if (cachedData) {
+                const data = JSON.parse(cachedData);
+
+                // 检查版本和过期时间
+                const now = new Date().getTime();
+                if (data.version === CACHE_VERSION && (now - data.timestamp) < CACHE_EXPIRY) {
+                    console.log('从缓存加载数据');
+                    return data;
+                } else {
+                    console.log('缓存已过期');
+                    localStorage.removeItem(CACHE_KEY);
+                }
+            }
+        } catch (error) {
+            console.error('加载缓存错误:', error);
+            localStorage.removeItem(CACHE_KEY);
+        }
+        return null;
+    }
+
+    // 保存数据到缓存
+    function saveToCache(imageList) {
+        try {
+            const cacheData = {
+                version: CACHE_VERSION,
+                timestamp: new Date().getTime(),
+                imageList: imageList
+            };
+            localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+            console.log('数据已保存到缓存');
+        } catch (error) {
+            console.error('保存缓存错误:', error);
+        }
+    }
+
     // 从 GitHub API 获取文件列表
     async function fetchImageList() {
-        showLoading();
-        document.getElementById('loading').textContent = '获取文件列表中...';
+        updateLoadingInfo('获取图片列表中...');
+        updateProgress(10);
+
+        // 尝试从缓存加载
+        const cachedData = loadCachedData();
+        if (cachedData && cachedData.imageList && cachedData.imageList.length > 0) {
+            updateProgress(30);
+            updateLoadingInfo(`从缓存加载了 ${cachedData.imageList.length} 张图片信息`);
+            return cachedData.imageList;
+        }
 
         try {
             const response = await fetch(githubApiUrl);
@@ -194,6 +296,7 @@
             }
 
             const data = await response.json();
+            updateProgress(30);
 
             // 过滤出图片文件
             const imageFiles = data.filter(file => {
@@ -202,82 +305,178 @@
             }).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
 
             if (imageFiles.length === 0) {
-                document.getElementById('loading').textContent = 'myAlbum 目录中没有找到图片文件';
+                updateLoadingInfo('myAlbum 目录中没有找到图片文件');
                 return [];
             }
 
             console.log(`找到 ${imageFiles.length} 张图片`);
-            return imageFiles.map(file => file.name);
+            const fileNames = imageFiles.map(file => file.name);
+
+            // 保存到缓存
+            saveToCache(fileNames);
+
+            return fileNames;
         } catch (error) {
             console.error('获取文件列表错误:', error);
-            document.getElementById('loading').textContent = `获取图片列表失败: ${error.message}`;
+            updateLoadingInfo(`获取图片列表失败: ${error.message}`);
             return [];
         }
     }
 
-    // 从GitHub加载图片
+    // 使用 Promise.all 并行加载图片
+    async function preloadImages(imageFiles, startIndex, count) {
+        const endIndex = Math.min(startIndex + count, imageFiles.length);
+        const imagesToLoad = imageFiles.slice(startIndex, endIndex);
+
+        updateLoadingInfo(`预加载 ${startIndex + 1} - ${endIndex} / ${imageFiles.length}`);
+
+        const promises = imagesToLoad.map((fileName, idx) => {
+            return new Promise((resolve) => {
+                const encodedFileName = encodeURIComponent(fileName);
+
+                // 尝试从缓存中获取已加载的图片
+                if (cachedImages[encodedFileName]) {
+                    resolve({
+                        index: startIndex + idx,
+                        url: cachedImages[encodedFileName]
+                    });
+                    return;
+                }
+
+                // 优先尝试 GitHub 直接链接
+                const imageUrl = githubRepoUrl + encodedFileName;
+
+                // 创建图片对象预加载
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+
+                // 加载超时处理
+                const timeoutId = setTimeout(() => {
+                    console.log(`图片加载超时，尝试CDN: ${fileName}`);
+                    img.src = cdnBaseUrl + encodedFileName; // 尝试使用CDN
+                }, 5000); // 5秒超时
+
+                img.onload = function() {
+                    clearTimeout(timeoutId);
+                    cachedImages[encodedFileName] = img.src; // 缓存已加载的图片URL
+                    resolve({
+                        index: startIndex + idx,
+                        url: img.src
+                    });
+                };
+
+                img.onerror = function() {
+                    clearTimeout(timeoutId);
+                    console.error(`无法加载图片: ${fileName}`);
+                    // 尝试备用CDN
+                    const cdnUrl = cdnBaseUrl + encodedFileName;
+                    const backupImg = new Image();
+
+                    backupImg.onload = function() {
+                        cachedImages[encodedFileName] = cdnUrl;
+                        resolve({
+                            index: startIndex + idx,
+                            url: cdnUrl
+                        });
+                    };
+
+                    backupImg.onerror = function() {
+                        console.error(`CDN也无法加载图片: ${fileName}`);
+                        resolve({ index: startIndex + idx }); // 返回空结果但不中断加载
+                    };
+
+                    backupImg.src = cdnUrl;
+                };
+
+                img.src = imageUrl;
+            });
+        });
+
+        return Promise.all(promises);
+    }
+
+    // 从GitHub加载图片 - 优化版本
     async function loadImagesFromGitHub() {
+        showLoading();
+
         const imageFiles = await fetchImageList();
 
         if (imageFiles.length === 0) {
+            updateLoadingInfo('没有找到图片');
             return;
         }
 
-        document.getElementById('loading').textContent = '开始加载图片...';
-        images = [];
+        updateProgress(40);
+        updateLoadingInfo(`开始加载 ${imageFiles.length} 张图片...`);
+
+        // 清空当前数据
+        images = new Array(imageFiles.length);
         currentPageIndex = 0;
-        let loadedCount = 0;
 
-        imageFiles.forEach((fileName, index) => {
-            // 编码文件名以处理特殊字符
-            const encodedFileName = encodeURIComponent(fileName);
-            const imageUrl = githubRepoUrl + encodedFileName;
+        // 先加载前4张图片（当前页和下一页需要的图片）
+        const initialBatchSize = Math.min(4, imageFiles.length);
+        const initialBatch = await preloadImages(imageFiles, 0, initialBatchSize);
 
-            // 创建图片对象预加载
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-
-            img.onload = function() {
-                images[index] = imageUrl;
-                loadedCount++;
-
-                // 更新加载进度
-                document.getElementById('loading').textContent =
-                    `正在加载图片... ${loadedCount}/${imageFiles.length}`;
-
-                if (loadedCount === imageFiles.length) {
-                    hideLoading();
-                    displayCurrentPages();
-                    updatePageIndicator();
-                    updateButtons();
-                }
-            };
-
-            img.onerror = function() {
-                console.error(`无法加载图片: ${fileName}`);
-                loadedCount++;
-
-                if (loadedCount === imageFiles.length) {
-                    images = images.filter(img => img !== undefined);
-                    hideLoading();
-
-                    if (images.length === 0) {
-                        document.getElementById('loading').textContent =
-                            '无法从GitHub加载图片。请检查网络连接或仓库权限。';
-                        document.getElementById('loading').style.display = 'block';
-                    } else {
-                        displayCurrentPages();
-                        updatePageIndicator();
-                        updateButtons();
-                    }
-                }
-            };
-
-            img.src = imageUrl;
+        // 处理加载结果
+        initialBatch.forEach(result => {
+            if (result.url) {
+                images[result.index] = result.url;
+            }
         });
+
+        updateProgress(60);
+
+        // 显示已加载的图片
+        if (images.filter(img => img !== undefined).length > 0) {
+            hideLoading();
+            displayCurrentPages();
+            updatePageIndicator();
+            updateButtons();
+
+            // 在背景中继续加载剩余图片
+            loadRemainingImages(imageFiles, initialBatchSize);
+        } else {
+            updateLoadingInfo('无法加载任何图片，请检查网络连接');
+        }
     }
 
-    // 显示当前页面
+    // 在背景中加载剩余图片
+    async function loadRemainingImages(imageFiles, startIndex) {
+        if (startIndex >= imageFiles.length) return;
+
+        const batchSize = 5; // 每批加载5张图片
+        let currentIndex = startIndex;
+
+        while (currentIndex < imageFiles.length) {
+            const batch = await preloadImages(imageFiles, currentIndex, batchSize);
+
+            // 处理加载结果
+            batch.forEach(result => {
+                if (result.url) {
+                    images[result.index] = result.url;
+                }
+            });
+
+            // 更新进度
+            const progressPercent = 60 + Math.floor((currentIndex / imageFiles.length) * 40);
+            updateProgress(Math.min(progressPercent, 99));
+
+            currentIndex += batchSize;
+
+            // 更新显示（如果是当前正在查看的图片）
+            if (Math.floor(currentIndex / 2) === Math.floor(currentPageIndex / 2)) {
+                displayCurrentPages();
+            }
+
+            // 短暂暂停，避免过度消耗资源
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        updateProgress(100);
+        console.log('所有图片加载完成');
+    }
+
+    // 显示当前页面 - 优化版
     function displayCurrentPages() {
         const leftContent = document.getElementById('leftContent');
         const rightContent = document.getElementById('rightContent');
@@ -287,19 +486,48 @@
         rightContent.innerHTML = '';
 
         // 显示左页
-        if (currentPageIndex < images.length) {
+        if (currentPageIndex < images.length && images[currentPageIndex]) {
             const leftImg = document.createElement('img');
             leftImg.src = images[currentPageIndex];
             leftImg.alt = `图片 ${currentPageIndex + 1}`;
+            leftImg.loading = "eager"; // 优先加载可见图片
             leftContent.appendChild(leftImg);
         }
 
         // 显示右页
-        if (currentPageIndex + 1 < images.length) {
+        if (currentPageIndex + 1 < images.length && images[currentPageIndex + 1]) {
             const rightImg = document.createElement('img');
             rightImg.src = images[currentPageIndex + 1];
             rightImg.alt = `图片 ${currentPageIndex + 2}`;
+            rightImg.loading = "eager"; // 优先加载可见图片
             rightContent.appendChild(rightImg);
+        }
+
+        // 预加载下几页的图片
+        preloadNextPages();
+    }
+
+    // 预加载下一页和下下页
+    function preloadNextPages() {
+        // 预加载下一页
+        if (currentPageIndex + 2 < images.length && !images[currentPageIndex + 2]) {
+            fetchNextImages(currentPageIndex + 2, 2);
+        }
+        // 预加载下下页
+        if (currentPageIndex + 4 < images.length && !images[currentPageIndex + 4]) {
+            fetchNextImages(currentPageIndex + 4, 2);
+        }
+    }
+
+    // 加载指定索引的图片
+    function fetchNextImages(startIndex, count) {
+        // 如果已经有图片信息但没有加载，触发加载
+        for (let i = 0; i < count; i++) {
+            const index = startIndex + i;
+            if (index < images.length && !images[index]) {
+                // 此处可以针对性加载特定索引的图片
+                console.log(`预加载索引 ${index} 的图片`);
+            }
         }
     }
 
@@ -361,6 +589,7 @@
         document.getElementById('bookContainer').style.display = 'none';
         document.getElementById('controls').style.display = 'none';
         document.getElementById('pageIndicator').style.display = 'none';
+        updateProgress(0);
     }
 
     // 隐藏加载状态
