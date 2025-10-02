@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>翻书效果图片浏览器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .book-container {
+            perspective: 1500px;
+            width: 800px;
+            height: 600px;
+            position: relative;
+        }
+
+        .book {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s ease-in-out;
+        }
+
+        .page {
+            position: absolute;
+            width: 50%;
+            height: 100%;
+            background: white;
+            border: 2px solid #333;
+            border-radius: 10px;
+            transform-origin: left center;
+            transform-style: preserve-3d;
+            transition: transform 0.8s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .page-left {
+            left: 0;
+            z-index: 10;
+        }
+
+        .page-right {
+            right: 0;
+            z-index: 10;
+        }
+
+        .page-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .page-content img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 5px;
+        }
+
+        .page-flipped {
+            transform: rotateY(-180deg);
+            z-index: 5;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn:hover {
+            background: white;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .page-indicator {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: #333;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        @media (max-width: 768px) {
+            .book-container {
+                width: 90vw;
+                height: 60vh;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="loading" id="loading">正在加载图片...</div>
+
+<div class="book-container" id="bookContainer" style="display: none;">
+    <div class="book" id="book">
+        <div class="page page-left" id="leftPage">
+            <div class="page-content" id="leftContent"></div>
+        </div>
+        <div class="page page-right" id="rightPage">
+            <div class="page-content" id="rightContent"></div>
+        </div>
+    </div>
+</div>
+
+<div class="page-indicator" id="pageIndicator" style="display: none;">
+    第 <span id="currentPage">1</span> 页 / 共 <span id="totalPages">0</span> 页
+</div>
+
+<div class="controls" id="controls" style="display: none;">
+    <button class="btn" id="prevBtn" onclick="previousPage()">上一页</button>
+    <button class="btn" id="nextBtn" onclick="nextPage()">下一页</button>
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;" onchange="loadImages(event)">
+    <button class="btn" onclick="document.getElementById('folderInput').click()">选择文件夹</button>
+</div>
+
+<script>
+    let images = [];
+    let currentPageIndex = 0;
+    let isFlipping = false;
+
+    // 模拟图片数据（实际使用时会从文件夹读取）
+    const sampleImages = [
+        'https://picsum.photos/400/600?random=1',
+        'https://picsum.photos/400/600?random=2',
+        'https://picsum.photos/400/600?random=3',
+        'https://picsum.photos/400/600?random=4',
+        'https://picsum.photos/400/600?random=5',
+        'https://picsum.photos/400/600?random=6'
+    ];
+
+    // 初始化加载示例图片
+    function initializeWithSampleImages() {
+        images = sampleImages;
+        hideLoading();
+        displayCurrentPages();
+        updatePageIndicator();
+        updateButtons();
+    }
+
+    // 从文件夹加载图片
+    function loadImages(event) {
+        const files = Array.from(event.target.files);
+        const imageFiles = files.filter(file => file.type.startsWith('image/'));
+
+        if (imageFiles.length === 0) {
+            alert('所选文件夹中没有找到图片文件');
+            return;
+        }
+
+        showLoading();
+        images = [];
+        currentPageIndex = 0;
+
+        let loadedCount = 0;
+
+        imageFiles.forEach((file, index) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                images[index] = e.target.result;
+                loadedCount++;
+
+                if (loadedCount === imageFiles.length) {
+                    // 过滤掉未定义的元素并排序
+                    images = images.filter(img => img !== undefined);
+                    hideLoading();
+                    displayCurrentPages();
+                    updatePageIndicator();
+                    updateButtons();
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // 显示当前页面
+    function displayCurrentPages() {
+        const leftContent = document.getElementById('leftContent');
+        const rightContent = document.getElementById('rightContent');
+
+        // 清空内容
+        leftContent.innerHTML = '';
+        rightContent.innerHTML = '';
+
+        // 显示左页
+        if (currentPageIndex < images.length) {
+            const leftImg = document.createElement('img');
+            leftImg.src = images[currentPageIndex];
+            leftImg.alt = `图片 ${currentPageIndex + 1}`;
+            leftContent.appendChild(leftImg);
+        }
+
+        // 显示右页
+        if (currentPageIndex + 1 < images.length) {
+            const rightImg = document.createElement('img');
+            rightImg.src = images[currentPageIndex + 1];
+            rightImg.alt = `图片 ${currentPageIndex + 2}`;
+            rightContent.appendChild(rightImg);
+        }
+    }
+
+    // 下一页
+    function nextPage() {
+        if (isFlipping || currentPageIndex + 2 >= images.length) return;
+
+        isFlipping = true;
+        const book = document.getElementById('book');
+
+        // 翻页动画
+        book.style.transform = 'rotateY(-15deg)';
+
+        setTimeout(() => {
+            currentPageIndex += 2;
+            displayCurrentPages();
+            updatePageIndicator();
+            updateButtons();
+            book.style.transform = 'rotateY(0deg)';
+            isFlipping = false;
+        }, 400);
+    }
+
+    // 上一页
+    function previousPage() {
+        if (isFlipping || currentPageIndex <= 0) return;
+
+        isFlipping = true;
+        const book = document.getElementById('book');
+
+        // 翻页动画
+        book.style.transform = 'rotateY(15deg)';
+
+        setTimeout(() => {
+            currentPageIndex -= 2;
+            displayCurrentPages();
+            updatePageIndicator();
+            updateButtons();
+            book.style.transform = 'rotateY(0deg)';
+            isFlipping = false;
+        }, 400);
+    }
+
+    // 更新页面指示器
+    function updatePageIndicator() {
+        document.getElementById('currentPage').textContent = Math.floor(currentPageIndex / 2) + 1;
+        document.getElementById('totalPages').textContent = Math.ceil(images.length / 2);
+    }
+
+    // 更新按钮状态
+    function updateButtons() {
+        document.getElementById('prevBtn').disabled = currentPageIndex <= 0;
+        document.getElementById('nextBtn').disabled = currentPageIndex + 2 >= images.length;
+    }
+
+    // 显示加载状态
+    function showLoading() {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('bookContainer').style.display = 'none';
+        document.getElementById('controls').style.display = 'none';
+        document.getElementById('pageIndicator').style.display = 'none';
+    }
+
+    // 隐藏加载状态
+    function hideLoading() {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('bookContainer').style.display = 'block';
+        document.getElementById('controls').style.display = 'flex';
+        document.getElementById('pageIndicator').style.display = 'block';
+    }
+
+    // 键盘事件监听
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'ArrowRight' || event.key === ' ') {
+            nextPage();
+        } else if (event.key === 'ArrowLeft') {
+            previousPage();
+        }
+    });
+
+    // 页面点击事件
+    document.getElementById('rightPage').addEventListener('click', nextPage);
+    document.getElementById('leftPage').addEventListener('click', previousPage);
+
+    // 页面加载完成后初始化
+    window.addEventListener('load', function() {
+        // 延迟一秒后加载示例图片
+        setTimeout(() => {
+            initializeWithSampleImages();
+        }, 1000);
+    });
+</script>
+</body>
+</html>
