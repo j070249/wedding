@@ -66,6 +66,13 @@
             display: flex;
             justify-content: center;
             align-items: center;
+            transform-style: preserve-3d;
+            transition: transform 0.8s ease-in-out;
+        }
+
+        .next-page {
+            z-index: -1;
+            opacity: 1;
         }
 
         .page-content {
@@ -180,6 +187,34 @@
             transition: filter 0.5s ease;
         }
 
+        .single-page.flip-next {
+            animation: flipNext 0.6s cubic-bezier(0.4,0.2,0.2,1) forwards;
+            z-index: 10;
+        }
+
+        .single-page.flip-prev {
+            animation: flipPrev 0.6s cubic-bezier(0.4,0.2,0.2,1) forwards;
+            z-index: 10;
+        }
+
+        .single-page.fade-out {
+            animation: fadeOut 0.3s ease forwards;
+        }
+
+        @keyframes flipNext {
+            0% { transform: rotateY(0deg); }
+            100% { transform: rotateY(-90deg); opacity: 0; }
+        }
+
+        @keyframes flipPrev {
+            0% { transform: rotateY(0deg); }
+            100% { transform: rotateY(90deg); opacity: 0; }
+        }
+
+        @keyframes fadeOut {
+            to { opacity: 0; }
+        }
+
         @media (max-width: 768px) {
             .book-container {
                 width: 90vw;
@@ -190,6 +225,7 @@
                 gap: 10px;
             }
         }
+
     </style>
 </head>
 <body>
@@ -204,6 +240,9 @@
 <div class="book-container" id="bookContainer" style="display: none;">
     <div class="page single-page" id="singlePage">
         <div class="page-content" id="singleContent"></div>
+    </div>
+    <div class="page single-page next-page" id="nextPage">
+        <div class="page-content" id="nextContent"></div>
     </div>
 </div>
 
@@ -470,10 +509,15 @@
         console.log('所有圖片載入完成');
     }
 
-    // 顯示目前頁面 - 優化版
+    // 顯示目前頁面和預載下一頁
     function displayCurrentPage() {
         const singleContent = document.getElementById('singleContent');
+        const nextContent = document.getElementById('nextContent');
+
         singleContent.innerHTML = '';
+        nextContent.innerHTML = '';
+
+        // 顯示當前頁面
         if (currentPageIndex < images.length && images[currentPageIndex]) {
             const img = document.createElement('img');
             img.src = images[currentPageIndex];
@@ -481,38 +525,141 @@
             img.loading = "eager";
             singleContent.appendChild(img);
         }
+
+        // 預載下一頁或上一頁（取決於翻頁方向）
+        preloadNextPageContent();
+    }
+
+    // 預載下一頁內容
+    function preloadNextPageContent() {
+        const nextContent = document.getElementById('nextContent');
+        nextContent.innerHTML = '';
+
+        // 預載下一頁
+        if (currentPageIndex + 1 < images.length && images[currentPageIndex + 1]) {
+            const nextImg = document.createElement('img');
+            nextImg.src = images[currentPageIndex + 1];
+            nextImg.alt = `圖片 ${currentPageIndex + 2}`;
+            nextImg.loading = "eager";
+            nextContent.appendChild(nextImg);
+        }
+    }
+
+    // 預載上一頁內容
+    function preloadPrevPageContent() {
+        const nextContent = document.getElementById('nextContent');
+        nextContent.innerHTML = '';
+
+        // 預載上一頁
+        if (currentPageIndex - 1 >= 0 && images[currentPageIndex - 1]) {
+            const prevImg = document.createElement('img');
+            prevImg.src = images[currentPageIndex - 1];
+            prevImg.alt = `圖片 ${currentPageIndex}`;
+            prevImg.loading = "eager";
+            nextContent.appendChild(prevImg);
+        }
     }
 
     // 下一頁
     function nextPage() {
         if (isFlipping || currentPageIndex + 1 >= images.length) return;
         isFlipping = true;
-        const singlePage = document.getElementById('singlePage');
-        singlePage.style.transform = 'rotateY(-15deg)';
+
+        const currentPage = document.getElementById('singlePage');
+        const nextPage = document.getElementById('nextPage');
+        const currentContent = document.getElementById('singleContent');
+        const nextContentDiv = document.getElementById('nextContent');
+
+        // 確保下一頁內容已經預載
+        if (!nextPage.querySelector('img')) {
+            preloadNextPageContent();
+        }
+
+        currentPage.classList.add('flip-next');
+
         setTimeout(() => {
+            // 更新頁面索引
             currentPageIndex += 1;
-            displayCurrentPage();
+
+            // 直接更新當前頁面內容，不交換角色
+            if (nextContentDiv.innerHTML) {
+                currentContent.innerHTML = nextContentDiv.innerHTML;
+            } else {
+                // 如果預載失敗，直接載入當前頁面
+                if (currentPageIndex < images.length && images[currentPageIndex]) {
+                    const img = document.createElement('img');
+                    img.src = images[currentPageIndex];
+                    img.alt = `圖片 ${currentPageIndex + 1}`;
+                    img.loading = "eager";
+                    currentContent.innerHTML = '';
+                    currentContent.appendChild(img);
+                }
+            }
+
+            // 移除動畫類別，但不交換頁面角色
+            currentPage.classList.remove('flip-next');
+
+            // 預載新的下一頁
+            preloadNextPageContent();
+
             updatePageIndicator();
             updateButtons();
-            singlePage.style.transform = 'rotateY(0deg)';
             isFlipping = false;
-        }, 400);
+        }, 600);
     }
 
-    // 上一頁
     function previousPage() {
         if (isFlipping || currentPageIndex <= 0) return;
         isFlipping = true;
-        const singlePage = document.getElementById('singlePage');
-        singlePage.style.transform = 'rotateY(15deg)';
+
+        const currentPage = document.getElementById('singlePage');
+        const currentContent = document.getElementById('singleContent');
+
+        // 先更新頁面索引
+        currentPageIndex -= 1;
+
+        // 預載上一頁內容並立即顯示
+        if (currentPageIndex >= 0 && images[currentPageIndex]) {
+            const prevImg = document.createElement('img');
+            prevImg.src = images[currentPageIndex];
+            prevImg.alt = `圖片 ${currentPageIndex + 1}`;
+            prevImg.loading = "eager";
+
+            // 將上一頁內容放到nextContent以便動畫後使用
+            const nextContentDiv = document.getElementById('nextContent');
+            nextContentDiv.innerHTML = '';
+            nextContentDiv.appendChild(prevImg.cloneNode(true));
+        }
+
+        currentPage.classList.add('flip-prev');
+
         setTimeout(() => {
-            currentPageIndex -= 1;
-            displayCurrentPage();
+            // 直接更新當前頁面內容
+            const nextContentDiv = document.getElementById('nextContent');
+            if (nextContentDiv.innerHTML) {
+                currentContent.innerHTML = nextContentDiv.innerHTML;
+            } else {
+                // 如果預載失敗，直接載入當前頁面
+                if (currentPageIndex >= 0 && images[currentPageIndex]) {
+                    const img = document.createElement('img');
+                    img.src = images[currentPageIndex];
+                    img.alt = `圖片 ${currentPageIndex + 1}`;
+                    img.loading = "eager";
+                    currentContent.innerHTML = '';
+                    currentContent.appendChild(img);
+                }
+            }
+
+            // 移除動畫類別
+            currentPage.classList.remove('flip-prev');
+
+            // 預載新的下一頁
+            preloadNextPageContent();
+
             updatePageIndicator();
             updateButtons();
-            singlePage.style.transform = 'rotateY(0deg)';
             isFlipping = false;
-        }, 400);
+        }, 600);
     }
 
     // 更新頁面指示器
